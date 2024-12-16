@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Make My Bill</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f9;
+    }
+    h1 {
+      text-align: center;
+      margin: 20px 0;
+      color: #333;
+    }
+    #scanner-section {
+      text-align: center;
+      margin: 20px auto;
+    }
+    #preview {
+      border: 4px solid #28a745;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      width: 90%;
+      max-width: 600px;
+      height: auto;
+      margin: 10px auto;
+      display: block;
+    }
+    #scanner-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: 2px dashed #555;
+      border-radius: 10px;
+      padding: 10px;
+      max-width: 90%;
+      margin: 10px auto;
+      background: #fff;
+    }
+    #output {
+      font-size: 18px;
+      color: #28a745;
+      font-weight: bold;
+      margin: 10px auto;
+    }
+    button {
+      display: inline-block;
+      padding: 10px 20px;
+      font-size: 16px;
+      color: #fff;
+      background-color: #007bff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 5px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #cart {
+      margin: 20px auto;
+      max-width: 500px;
+      border: 1px solid #ddd;
+      padding: 10px;
+      background: #fff;
+      border-radius: 8px;
+      text-align: center;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      margin: 10px 0;
+      font-size: 16px;
+    }
+    #total-price {
+      font-weight: bold;
+      font-size: 18px;
+      color: #333;
+    }
+    .quantity-input {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 15px 0;
+    }
+    .quantity-input input {
+      width: 100px;
+      padding: 5px;
+      margin-left: 10px;
+      font-size: 16px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Make My Bill</h1>
+
+  <!-- Scanner Section -->
+  <div id="scanner-section">
+    <button id="start-scan-quagga">Start Scanner</button>
+    <video id="preview"></video>
+    <div id="scanner-container"></div>
+    <div id="output"></div>
+  </div>
+
+  <!-- Quantity Input Section -->
+  <div class="quantity-input">
+    <label for="quantity">Enter Quantity:</label>
+    <input type="number" id="quantity" min="1" value="1">
+  </div>
+
+  <!-- Cart Section -->
+  <div id="cart">
+    <h2>Shopping Cart</h2>
+    <ul id="cart-list"></ul>
+    <h3>Total: ₹<span id="total-price">0</span></h3>
+    <button id="generate-bill">Generate Bill</button>
+  </div>
+
+  <script>
+    const products = {
+      "8901725013929": { name: "Bingo Tede Mede", price: 10 },
+      "8901725013930": { name: "Lays Classic Salted", price: 20 },
+      "8901725013931": { name: "Amul Butter 100g", price: 45 },
+      "8901030996375": { name: "Dove Shampoo", price: 2 },
+      "8909106000261": { name: "Vim Bar 5 Pack", price: 86 },
+    };
+
+    let cart = [];
+    let total = 0;
+    let scanCooldown = false;
+
+    function updateCart() {
+      const cartList = document.getElementById("cart-list");
+      const totalPriceElement = document.getElementById("total-price");
+
+      cartList.innerHTML = "";
+      cart.forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = `${item.name} (₹${item.price} x ${item.quantity}) - ₹${item.price * item.quantity}`;
+        cartList.appendChild(li);
+      });
+
+      totalPriceElement.textContent = total;
+    }
+
+    function addProductToCart(code) {
+      const product = products[code];
+      if (product) {
+        const quantity = parseInt(document.getElementById("quantity").value) || 1;
+        const existingIndex = cart.findIndex(item => item.code === code);
+
+        if (existingIndex > -1) {
+          cart[existingIndex].quantity += quantity;
+        } else {
+          cart.push({ ...product, code, quantity });
+        }
+
+        total += product.price * quantity;
+        updateCart();
+        displayMessage(`Scanned: ${product.name} - ₹${product.price}`);
+      } else {
+        displayMessage(`Product not found for code: ${code}`);
+      }
+    }
+
+    function addProductToCartWithDelay(code) {
+      if (scanCooldown) return;
+
+      addProductToCart(code);
+      scanCooldown = true;
+
+      setTimeout(() => {
+        scanCooldown = false;
+      }, 1000); // 1 second delay
+    }
+
+    function displayMessage(message) {
+      const output = document.getElementById("output");
+      output.innerHTML = `<p>${message}</p>`;
+    }
+
+    // QuaggaJS Scanner
+    document.getElementById("start-scan-quagga").addEventListener("click", () => {
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: document.getElementById("scanner-container"),
+        },
+        decoder: { readers: ["code_128_reader", "ean_reader"] },
+      }, (err) => {
+        if (err) {
+          console.error("Quagga init failed:", err);
+          return;
+        }
+        Quagga.start();
+      });
+
+      Quagga.onDetected((data) => {
+        addProductToCartWithDelay(data.codeResult.code);
+      });
+    });
+
+    // Generate PDF Bill
+    document.getElementById("generate-bill").addEventListener("click", () => {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF();
+
+      pdf.text("Make My Bill", 10, 10);
+      pdf.text("Products Purchased:", 10, 20);
+
+      let y = 30;
+      cart.forEach((item) => {
+        pdf.text(
+          `${item.name} (₹${item.price} x ${item.quantity}) - ₹${item.price * item.quantity}`,
+          10,
+          y
+        );
+        y += 10;
+      });
+
+      pdf.text(`Total: ₹${total}`, 10, y + 10);
+      pdf.save("bill.pdf");
+    });
+  </script>
+</body>
+</html>
